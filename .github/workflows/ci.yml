@@ -196,14 +196,14 @@ jobs:
             echo "attempt $attempt: $status"
             if [ "$status" = "succeeded" ]; then
               echo "$body" | python -c "
-import json, sys
-data = json.load(sys.stdin)['data']
-validation = data['result']['validation']
-assert validation['status'] == 'complete', validation
-score = validation['overall_fidelity']
-print(f'fidelity {score}')
-assert isinstance(score, (int, float)), 'no fidelity score returned'
-"
+          import json, sys
+          data = json.load(sys.stdin)['data']
+          validation = data['result']['validation']
+          assert validation['status'] == 'complete', validation
+          score = validation['overall_fidelity']
+          print(f'fidelity {score}')
+          assert isinstance(score, (int, float)), 'no fidelity score returned'
+          "
               exit 0
             fi
             if [ "$status" = "failed" ]; then
@@ -223,13 +223,13 @@ assert isinstance(score, (int, float)), 'no fidelity score returned'
             -H 'Content-Type: application/json' \
             -d '{"rows": [{"age": 64, "sex": "female", "hba1c": 7.8}], "cohort_id": "ci", "format": "fhir_r4_collection"}' \
             | python -c "
-import json, sys
-bundle = json.loads(json.load(sys.stdin)['data']['content'])
-assert bundle['resourceType'] == 'Bundle'
-codes = [c['code'] for entry in bundle['entry'] for c in entry['resource']['meta']['security']]
-assert set(codes) == {'HTEST'}, codes
-print('bundle tagged HTEST on every resource')
-"
+          import json, sys
+          bundle = json.loads(json.load(sys.stdin)['data']['content'])
+          assert bundle['resourceType'] == 'Bundle'
+          codes = [c['code'] for entry in bundle['entry'] for c in entry['resource']['meta']['security']]
+          assert set(codes) == {'HTEST'}, codes
+          print('bundle tagged HTEST on every resource')
+          "
 
       - name: Tear down
         if: always()
