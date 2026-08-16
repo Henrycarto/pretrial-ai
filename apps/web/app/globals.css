@@ -1,0 +1,169 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design rules that are enforced here rather than left to each component:
+ *
+ *   Numbers are monospaced, always. `.tabular` applies JetBrains Mono with
+ *   tabular figures so a column of scores stays aligned digit for digit. A
+ *   number rendered in Inter in this product is a bug.
+ *
+ *   Separation is structural. Panels are separated by 1px rules and a step
+ *   in background value. There are no drop shadows and no gradients.
+ */
+
+:root {
+  color-scheme: dark;
+
+  --shell: #080f1a;
+  --surface: #0e1b2e;
+  --surface-raised: #132540;
+  --edge: #1c3049;
+  --edge-strong: #27415f;
+  --accent: #2563eb;
+  --pass: #10b981;
+  --warn: #f59e0b;
+  --fail: #ef4444;
+}
+
+@layer base {
+  * {
+    @apply border-edge;
+  }
+
+  html,
+  body {
+    @apply bg-shell text-ink;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    font-family: var(--font-inter), system-ui, sans-serif;
+    /* A fixed 1px grid behind the shell. It reads as graph paper under the
+       panels and is the one piece of ornament in the product. */
+    background-image:
+      linear-gradient(to right, rgba(28, 48, 73, 0.28) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(28, 48, 73, 0.28) 1px, transparent 1px);
+    background-size: 64px 64px;
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: rgba(37, 99, 235, 0.35);
+  }
+
+  /* Scrollbars styled to match the shell. A default light scrollbar on a
+     near black panel is the loudest thing on the screen. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--shell);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--edge);
+    border: 2px solid var(--shell);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--edge-strong);
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 1px;
+  }
+}
+
+@layer components {
+  /* Every numeric value in the product goes through this. */
+  .tabular {
+    font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "zero" 1;
+  }
+
+  /* Section headers. Small, spaced, uppercase, the way a rack instrument
+     labels its channels. */
+  .label-micro {
+    @apply font-mono text-micro uppercase tracking-[0.14em] text-ink-dim;
+  }
+
+  .panel {
+    @apply border border-edge bg-surface;
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between border-b border-edge bg-surface-sunken px-4 py-2.5;
+  }
+
+  .rule {
+    @apply border-t border-edge;
+  }
+
+  /* Data tables. Dense by default, no zebra striping, hairline rules. */
+  .data-table {
+    @apply w-full border-collapse text-sm;
+  }
+  .data-table th {
+    @apply border-b border-edge px-3 py-2 text-left font-mono text-micro uppercase tracking-[0.14em] text-ink-dim;
+  }
+  .data-table td {
+    @apply border-b border-edge-faint px-3 py-2 align-middle;
+  }
+  .data-table tbody tr:hover {
+    background: rgba(37, 99, 235, 0.06);
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-sm border px-3.5 py-2
+           font-mono text-xs uppercase tracking-[0.1em] transition-colors
+           disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply border-accent bg-accent text-white hover:bg-accent-bright;
+  }
+  .btn-secondary {
+    @apply border-edge-strong bg-transparent text-ink hover:border-accent hover:text-accent-bright;
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-ink-muted hover:text-ink;
+  }
+
+  .field {
+    @apply w-full rounded-sm border border-edge bg-surface-sunken px-3 py-2 text-sm text-ink
+           placeholder:text-ink-dim focus:border-accent focus:outline-none;
+  }
+  .field-mono {
+    @apply field font-mono tabular-nums;
+  }
+}
+
+/*
+ * Recharts overrides. The library ships light theme defaults that fight the
+ * shell, and they are easier to correct once here than on every chart.
+ */
+.recharts-cartesian-axis-tick text {
+  fill: #62789a;
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 10px;
+}
+
+.recharts-cartesian-grid line {
+  stroke: #152438;
+}
+
+.recharts-tooltip-wrapper {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

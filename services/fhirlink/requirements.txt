@@ -1,0 +1,21 @@
+fastapi==0.115.2
+uvicorn[standard]==0.31.1
+pydantic==2.9.2
+pandas==2.2.3
+
+# fhir.resources 7.x publishes R4B under fhir.resources.R4B. R4B is the
+# maintenance release of R4 and the wire format for Patient, Observation, and
+# Bundle is identical, so a receiver expecting R4 accepts these bundles.
+#
+# 7.1.0 exactly, and the floor matters as much as the ceiling. 7.0.x is built
+# against pydantic v1 and raises ImportError on pydantic 2 at import time,
+# which takes the whole service down on startup rather than failing a
+# request. Be careful reading the installed version back: 7.1.0 reports its
+# own __version__ as "7.0.0", so trust pip and not the attribute.
+# The library also reorganises its module layout between majors, so this is
+# pinned rather than floated.
+fhir.resources==7.1.0
+
+# Test only
+pytest==8.3.3
+httpx==0.27.2

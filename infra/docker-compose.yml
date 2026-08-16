@@ -1,0 +1,159 @@
+# Local development stack.
+#
+#   docker compose -f infra/docker-compose.yml up --build
+#
+# Brings up Postgres, Redis, MinIO, the three services, the Celery worker,
+# and the frontend. Copy .env.example to .env at the repository root first.
+#
+# The worker runs the same image as the SyntheCore API with the command
+# overridden. One image, two roles, so the code the API validates against and
+# the code the worker executes cannot drift apart.
+
+name: pretrial
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pretrial}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pretrial_local_only}
+      POSTGRES_DB: ${POSTGRES_DB:-pretrial}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pretrial}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # appendonly keeps job records across a restart of the stack. Losing a
+    # cohort's progress history because the laptop rebooted mid demo is
+    # avoidable.
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-minio_local}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-minio_local_secret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  fidelitycheck:
+    build:
+      context: ../services/fidelitycheck
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+
+  fhirlink:
+    build:
+      context: ../services/fhirlink
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8003:8003"
+    restart: unless-stopped
+
+  synthecore:
+    build:
+      context: ../services/synthecore
+    environment: &synthecore_env
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: http://localhost:3000
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pretrial}:${POSTGRES_PASSWORD:-pretrial_local_only}@postgres:5432/${POSTGRES_DB:-pretrial}
+      FIDELITYCHECK_URL: http://fidelitycheck:8002
+      # Redis is the default cohort store locally. Set to s3 to exercise the
+      # MinIO path instead.
+      COHORT_STORAGE: ${COHORT_STORAGE:-redis}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET_SEED: ${S3_BUCKET_SEED:-pretrial-seed-data}
+      S3_BUCKET_EXPORT: ${S3_BUCKET_EXPORT:-pretrial-exports}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minio_local}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minio_local_secret}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      SYNTHECORE_ENGINE: ${SYNTHECORE_ENGINE:-auto}
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  synthecore-worker:
+    build:
+      context: ../services/synthecore
+    environment: *synthecore_env
+    # Solo pool because a generation job is one long CPU bound task and the
+    # prefork pool's fork per task buys nothing here. Concurrency comes from
+    # running more worker replicas, not more threads inside one.
+    command:
+      - celery
+      - -A
+      - app.celery_app:celery_app
+      - worker
+      - --loglevel=info
+      - --pool=solo
+      - --concurrency=1
+    depends_on:
+      redis:
+        condition: service_healthy
+      fidelitycheck:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    build:
+      # Root context: the app imports workspace packages as source.
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      # NEXT_PUBLIC_ variables are inlined into the client bundle at build
+      # time, so they have to be build args. Setting them as runtime
+      # environment would look correct and do nothing.
+      args:
+        NEXT_PUBLIC_SYNTHECORE_URL: ${NEXT_PUBLIC_SYNTHECORE_URL:-http://localhost:8001}
+        NEXT_PUBLIC_FIDELITYCHECK_URL: ${NEXT_PUBLIC_FIDELITYCHECK_URL:-http://localhost:8002}
+        NEXT_PUBLIC_FHIRLINK_URL: ${NEXT_PUBLIC_FHIRLINK_URL:-http://localhost:8003}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - synthecore
+      - fidelitycheck
+      - fhirlink
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

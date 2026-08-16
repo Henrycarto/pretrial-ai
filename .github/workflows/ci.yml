@@ -1,0 +1,262 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  services:
+    name: ${{ matrix.service }} tests
+    runs-on: ubuntu-latest
+    strategy:
+      # One service failing should not hide the state of the other two.
+      fail-fast: false
+      matrix:
+        service: [fidelitycheck, synthecore, fhirlink]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/${{ matrix.service }}/requirements.txt
+
+      - name: Install dependencies
+        working-directory: services/${{ matrix.service }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: services/${{ matrix.service }}
+        # PYTHONPATH rather than an installed package: the services are
+        # applications, not libraries, and each Docker image copies app/ in
+        # directly. Installing them here would test a layout that does not
+        # exist in the image.
+        env:
+          PYTHONPATH: .
+          # Forces the bootstrap generator so CI exercises the public code
+          # path. The private engine is not available to this workflow.
+          SYNTHECORE_ENGINE: stub
+        run: pytest -q
+
+      - name: Check the service imports cleanly
+        working-directory: services/${{ matrix.service }}
+        env:
+          PYTHONPATH: .
+        run: python -c "import app.main; print('${{ matrix.service }} ok')"
+
+  ctgan-stub-boundary:
+    name: Proprietary code boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The private engine must not be committed
+        # The public repository ships a stub. If the proprietary package ever
+        # lands here by accident, this job is the thing that catches it before
+        # the push is public.
+        run: |
+          if [ -d services/synthecore/app/engine/pretrial_synthecore_private ]; then
+            echo "Private engine directory found in the public repository."
+            exit 1
+          fi
+          if grep -rn --include='*.txt' 'pretrial-synthecore-private' services/; then
+            echo "Private package pinned in a public requirements file."
+            exit 1
+          fi
+          echo "Boundary intact: SyntheCore ships the stub."
+
+      - name: No patient data files committed
+        run: |
+          found=$(git ls-files '*.csv' '*.parquet' 'seed_data/*' || true)
+          if [ -n "$found" ]; then
+            echo "Data files are committed to the repository:"
+            echo "$found"
+            exit 1
+          fi
+          echo "No data files in the tree."
+
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  images:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    needs: [services, web]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: fidelitycheck
+            context: services/fidelitycheck
+            dockerfile: services/fidelitycheck/Dockerfile
+          - service: synthecore
+            context: services/synthecore
+            dockerfile: services/synthecore/Dockerfile
+          - service: fhirlink
+            context: services/fhirlink
+            dockerfile: services/fhirlink/Dockerfile
+          - service: web
+            context: .
+            dockerfile: apps/web/Dockerfile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: false
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  compose:
+    name: Stack smoke test
+    runs-on: ubuntu-latest
+    needs: [services]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bring up the stack
+        run: |
+          cp .env.example .env
+          docker compose -f infra/docker-compose.yml up -d --build \
+            redis postgres fidelitycheck fhirlink synthecore synthecore-worker
+
+      - name: Wait for the services to report healthy
+        run: |
+          for port in 8001 8002 8003; do
+            for attempt in $(seq 1 40); do
+              if curl -fsS "http://localhost:$port/health" > /dev/null; then
+                echo "port $port up"
+                break
+              fi
+              if [ "$attempt" -eq 40 ]; then
+                echo "port $port never came up"
+                docker compose -f infra/docker-compose.yml logs
+                exit 1
+              fi
+              sleep 3
+            done
+          done
+
+      - name: Generate a cohort end to end
+        # The real assertion of this job. It queues a job against the stub
+        # generator, waits for the worker to finish it, and checks that a
+        # fidelity score came back. It proves the Celery wiring, the Redis
+        # progress transport, and the SyntheCore to FidelityCheck call all
+        # work together, which no unit test covers.
+        run: |
+          job=$(curl -fsS -X POST http://localhost:8001/generate \
+            -H 'Content-Type: application/json' \
+            -d '{"cohort_size": 500, "reference_cohort_size": 2000}' \
+            | python -c "import json,sys; print(json.load(sys.stdin)['data']['job_id'])")
+          echo "job: $job"
+
+          for attempt in $(seq 1 60); do
+            body=$(curl -fsS "http://localhost:8001/jobs/$job")
+            status=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin)['data']['status'])")
+            echo "attempt $attempt: $status"
+            if [ "$status" = "succeeded" ]; then
+              echo "$body" | python -c "
+import json, sys
+data = json.load(sys.stdin)['data']
+validation = data['result']['validation']
+assert validation['status'] == 'complete', validation
+score = validation['overall_fidelity']
+print(f'fidelity {score}')
+assert isinstance(score, (int, float)), 'no fidelity score returned'
+"
+              exit 0
+            fi
+            if [ "$status" = "failed" ]; then
+              echo "$body"
+              docker compose -f infra/docker-compose.yml logs synthecore-worker
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "job never completed"
+          docker compose -f infra/docker-compose.yml logs synthecore-worker
+          exit 1
+
+      - name: Export the cohort as FHIR
+        run: |
+          curl -fsS -X POST http://localhost:8003/export/preview \
+            -H 'Content-Type: application/json' \
+            -d '{"rows": [{"age": 64, "sex": "female", "hba1c": 7.8}], "cohort_id": "ci", "format": "fhir_r4_collection"}' \
+            | python -c "
+import json, sys
+bundle = json.loads(json.load(sys.stdin)['data']['content'])
+assert bundle['resourceType'] == 'Bundle'
+codes = [c['code'] for entry in bundle['entry'] for c in entry['resource']['meta']['security']]
+assert set(codes) == {'HTEST'}, codes
+print('bundle tagged HTEST on every resource')
+"
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f infra/docker-compose.yml down -v
+
+  copy-rules:
+    name: Copy rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No em dashes or en dashes
+        # House style, enforced rather than remembered.
+        #
+        # Matched by codepoint with grep -P rather than by pasting the
+        # character into the pattern. A literal em dash here would make this
+        # job fail on its own source, which is a genuinely annoying twenty
+        # minutes to debug.
+        run: |
+          if grep -rnP --binary-files=without-match '[\x{2014}\x{2013}]' \
+            --include='*.md' --include='*.ts' --include='*.tsx' \
+            --include='*.py' --include='*.yml' --include='*.css' \
+            --include='*.tf' --include='*.json' \
+            --exclude=package-lock.json \
+            --exclude-dir=node_modules --exclude-dir=.next \
+            . ; then
+            echo "Em dash or en dash found. House style forbids both."
+            exit 1
+          fi
+          echo "No em dashes."

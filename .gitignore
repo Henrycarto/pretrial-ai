@@ -1,0 +1,49 @@
+# Claude / agent tooling
+CLAUDE.md
+.claude/
+*.claude
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+dist/
+.next/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Data. Never commit seed or generated patient data, real or synthetic.
+# Synthetic cohorts derived from real seed data can still leak
+# distributional detail about the source population.
+*.csv
+*.parquet
+seed_data/
+exports/
+
+# Terraform state holds resource identifiers and sometimes secrets
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# OS
+.DS_Store
+Thumbs.db
