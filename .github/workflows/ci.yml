@@ -73,7 +73,11 @@ jobs:
             echo "Private engine directory found in the public repository."
             exit 1
           fi
-          if grep -rn --include='*.txt' 'pretrial-synthecore-private' services/; then
+          # Anchored so a comment cannot trip it. requirements.txt explains
+          # why the private package is absent, and naming it in prose is not
+          # the same as depending on it. The leading [^#]* cannot consume a
+          # hash, so a comment line never matches while a real pin does.
+          if grep -rnE --include='*.txt' '^[^#]*pretrial-synthecore-private' services/; then
             echo "Private package pinned in a public requirements file."
             exit 1
           fi
