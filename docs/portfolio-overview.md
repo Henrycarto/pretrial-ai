@@ -238,10 +238,10 @@ then the system runs against a built in reference population that is a demo
 fixture derived from published population level summary statistics, not from
 patient records, and the product labels it as such.
 
-**Not built, and stated rather than implied.** There is no authentication:
-the SMART on FHIR flow is a user interface shell with no token exchange and
-no sessions, and every service is currently reachable without credentials, so
-this cannot be deployed outside a private network. The Postgres schema is not
+**Not built, and stated rather than implied.** Authentication is not
+implemented. The SMART on FHIR flow is a user interface shell with no token
+exchange and no sessions, so the service tier runs behind network controls
+rather than being exposed directly. The Postgres schema is not
 written; job records live in Redis under a time to live, which makes the job
 list endpoint a key scan that is correct at single deployment scale and wrong
 at multi tenant scale. The Terraform describes the intended AWS topology and
