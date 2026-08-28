@@ -16,7 +16,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-pretrial}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pretrial_local_only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-pretrial}
     ports:
       - "5432:5432"
@@ -49,7 +49,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-minio_local}
-      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-minio_local_secret}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-changeme}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -90,7 +90,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pretrial}:${POSTGRES_PASSWORD:-pretrial_local_only}@postgres:5432/${POSTGRES_DB:-pretrial}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pretrial}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-pretrial}
       FIDELITYCHECK_URL: http://fidelitycheck:8002
       # Redis is the default cohort store locally. Set to s3 to exercise the
       # MinIO path instead.
@@ -99,7 +99,7 @@ services:
       S3_BUCKET_SEED: ${S3_BUCKET_SEED:-pretrial-seed-data}
       S3_BUCKET_EXPORT: ${S3_BUCKET_EXPORT:-pretrial-exports}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minio_local}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minio_local_secret}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-changeme}
       AWS_REGION: ${AWS_REGION:-eu-central-1}
       SYNTHECORE_ENGINE: ${SYNTHECORE_ENGINE:-auto}
     ports:
