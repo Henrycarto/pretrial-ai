@@ -1,7 +1,3 @@
-# Claude / agent tooling
-CLAUDE.md
-.claude/
-*.claude
 
 # Environment
 .env
