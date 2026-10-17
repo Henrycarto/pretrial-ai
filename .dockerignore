@@ -17,5 +17,3 @@ venv
 seed_data
 *.csv
 *.parquet
-CLAUDE.md
-.claude
